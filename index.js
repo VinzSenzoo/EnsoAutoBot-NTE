@@ -37,25 +37,6 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function typeText(text, color, noType = false) {
-  const maxLength = 80;
-  const displayText = text.length > maxLength ? text.slice(0, maxLength) + '...' : text;
-  if (noType) {
-    console.log(color(` ┊ │ ${displayText}`));
-    return;
-  }
-  const totalTime = 200;
-  const sleepTime = displayText.length > 0 ? totalTime / displayText.length : 1;
-  console.log(color(' ┊ ┌── Response Chat API ──'));
-  process.stdout.write(color(' ┊ │ '));
-  for (const char of displayText) {
-    process.stdout.write(char);
-    await sleep(sleepTime);
-  }
-  process.stdout.write('\n');
-  console.log(color(' ┊ └──'));
-}
-
 function createProgressBar(current, total) {
   const barLength = 30;
   const filled = Math.round((current / total) * barLength);
@@ -89,139 +70,6 @@ async function getPublicIP(proxy = null) {
   } catch (err) {
     spinner.fail(chalk.red(' ┊ ✗ Gagal mendapatkan IP'));
     return 'Unknown';
-  }
-}
-
-async function getNonce(proxy = null, retryCount = 0) {
-  const maxRetries = 5;
-  const spinner = ora({ text: chalk.cyan(` ┊ → Mengambil nonce${retryCount > 0 ? ` (Retry ke-${retryCount}/${maxRetries})` : ''}...`), prefixText: '', spinner: 'bouncingBar' }).start();
-  try {
-    let config = { headers: { 'Content-Type': 'application/json' } };
-    if (proxy) {
-      config.httpAgent = new HttpsProxyAgent(proxy);
-      config.httpsAgent = new HttpsProxyAgent(proxy);
-    }
-    const response = await axios.get('https://enso.brianknows.org/api/auth/nonce', config);
-    spinner.succeed(chalk.green(' ┊ ✓ Nonce diterima'));
-    await sleep(100);
-    return response.data;
-  } catch (err) {
-    if (retryCount < maxRetries - 1) {
-      spinner.text = chalk.cyan(` ┊ → Mengambil nonce (Retry ke-${retryCount + 1}/${maxRetries})...`);
-      await sleep(5000);
-      return getNonce(proxy, retryCount + 1);
-    }
-    spinner.fail(chalk.red(` ┊ ✗ Gagal mendapatkan nonce: ${err.message}`));
-    throw err;
-  }
-}
-
-async function signMessage(privateKey, nonce, address) {
-  const spinner = ora({ text: chalk.cyan(' ┊ → Menandatangani pesan...'), prefixText: '', spinner: 'bouncingBar' }).start();
-  try {
-    const wallet = new ethers.Wallet(privateKey);
-    const domain = 'enso.brianknows.org';
-    const issuedAt = moment().toISOString();
-    const message = [
-      `${domain} wants you to sign in with your Ethereum account:`,
-      address,
-      '',
-      'By signing this message, you confirm you have read and accepted the following Terms and Conditions: https://terms.enso.build/',
-      '',
-      `URI: https://enso.brianknows.org`,
-      `Version: 1`,
-      `Chain ID: 56`,
-      `Nonce: ${nonce}`,
-      `Issued At: ${issuedAt}`,
-    ].join('\n');
-
-    const signature = await wallet.signMessage(message);
-    const messageObj = {
-      domain,
-      address,
-      statement: 'By signing this message, you confirm you have read and accepted the following Terms and Conditions: https://terms.enso.build/',
-      uri: 'https://enso.brianknows.org',
-      version: '1',
-      nonce,
-      issuedAt,
-      chainId: 56,
-    };
-    spinner.succeed(chalk.green(' ┊ ✓ Pesan ditandatangani'));
-    await sleep(100);
-    return { message: messageObj, signature };
-  } catch (err) {
-    spinner.fail(chalk.red(` ┊ ✗ Gagal menandatangani: ${err.message}`));
-    throw err;
-  }
-}
-
-async function verify(message, signature, address, proxy = null, retryCount = 0) {
-  const maxRetries = 5;
-  const spinner = ora({ text: chalk.cyan(` ┊ → Memverifikasi akun${retryCount > 0 ? ` (Retry ke-${retryCount}/${maxRetries})` : ''}...`), prefixText: '', spinner: 'bouncingBar' }).start();
-  try {
-    let config = {
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': '*/*',
-        'User-Agent': randomUseragent.getRandom(),
-        'Origin': 'https://enso.brianknows.org',
-        'Referer': `https://enso.brianknows.org/search?userId=${address}`,
-      },
-    };
-    if (proxy) {
-      config.httpAgent = new HttpsProxyAgent(proxy);
-      config.httpsAgent = new HttpsProxyAgent(proxy);
-    }
-    const response = await axios.post('https://enso.brianknows.org/api/auth/verify', { message, signature }, config);
-    const cookies = response.headers['set-cookie'] || [];
-    const tokenMatch = cookies.find(cookie => cookie.includes('brian-token='));
-    const token = tokenMatch ? tokenMatch.split('brian-token=')[1].split(';')[0] : null;
-    if (!token) throw new Error('brian-token tidak ditemukan');
-    spinner.succeed(chalk.green(` ┊ ✓ Verifikasi berhasil: brian-token=${token.slice(0, 10)}...; address=${address.slice(0, 8)}...`));
-    await sleep(100);
-    return { token, address, cookies };
-  } catch (err) {
-    if (retryCount < maxRetries - 1) {
-      spinner.text = chalk.cyan(` ┊ → Memverifikasi akun (Retry ke-${retryCount + 1}/${maxRetries})...`);
-      await sleep(5000);
-      return verify(message, signature, address, proxy, retryCount + 1);
-    }
-    spinner.fail(chalk.red(` ┊ ✗ Gagal verifikasi: ${err.message}`));
-    throw err;
-  }
-}
-
-async function getAccountInfo(token, address, proxy = null, retryCount = 0) {
-  const maxRetries = 5;
-  const spinner = ora({ text: chalk.cyan(` ┊ → Mengambil info akun${retryCount > 0 ? ` (Retry ke-${retryCount}/${maxRetries})` : ''}...`), prefixText: '', spinner: 'bouncingBar' }).start();
-  try {
-    const cookie = `brian-address=${address}; brian-token=${token}; ph_phc_NfMuib33NsuSeHbpu42Ng91vE5X6J1amefUiuVgwx5y_posthog={"distinct_id":"0196a6af-e55f-79aa-9eda-0bc979d7345e","$sesid":[1746600342091,"0196a97c-daff-7ede-b8ef-c6f03e5cb2e4",1746600254207],"$initial_person_info":{"r":"https://speedrun.enso.build/","u":"https://enso.brianknows.org/search?userId=${address}"}}`;
-    let config = {
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': '*/*',
-        'User-Agent': randomUseragent.getRandom(),
-        'Cookie': cookie,
-        'Origin': 'https://enso.brianknows.org',
-        'Referer': `https://enso.brianknows.org/search?userId=${address}`,
-      },
-    };
-    if (proxy) {
-      config.httpAgent = new HttpsProxyAgent(proxy);
-      config.httpsAgent = new HttpsProxyAgent(proxy);
-    }
-    const response = await axios.get('https://enso.brianknows.org/api/auth/me', config);
-    spinner.succeed(chalk.green(` ┊ ✓ Login: ${response.data.account.address.slice(0, 8)}...${response.data.account.address.slice(-6)}`));
-    await sleep(100);
-    return response.data;
-  } catch (err) {
-    if (retryCount < maxRetries - 1) {
-      spinner.text = chalk.cyan(` ┊ → Mengambil info akun (Retry ke-${retryCount + 1}/${maxRetries})...`);
-      await sleep(5000);
-      return getAccountInfo(token, address, proxy, retryCount + 1);
-    }
-    spinner.fail(chalk.red(` ┊ ✗ Gagal mendapatkan info akun: ${err.message}`));
-    throw err;
   }
 }
 
@@ -271,49 +119,6 @@ async function getUserInfo(zealyUserId, proxy = null, retryCount = 0) {
       connectedWallet: 'Unknown',
       xp: 0,
     };
-  }
-}
-
-async function performChat(token, query, address, messages, proxy = null, retryCount = 0) {
-  const maxRetries = 5;
-  const spinner = ora({ text: chalk.cyan(` ┊ → Mengirim chat...`), prefixText: '', spinner: 'bouncingBar' }).start();
-  try {
-    const cookie = `brian-address=${address}; brian-token=${token}; ph_phc_NfMuib33NsuSeHbpu42Ng91vE5X6J1amefUiuVgwx5y_posthog={"distinct_id":"0196a6af-e55f-79aa-9eda-0bc979d7345e","$sesid":[1746600342091,"0196a97c-daff-7ede-b8ef-c6f03e5cb2e4",1746600254207],"$initial_person_info":{"r":"https://speedrun.enso.build/","u":"https://enso.brianknows.org/search?userId=${address}"}}`;
-    const payload = { query, kbId: 'b4393b93-e603-426d-8b9f-0af145498c92' };
-    let config = {
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': '*/*',
-        'User-Agent': randomUseragent.getRandom(),
-        'Cookie': cookie,
-        'Origin': 'https://enso.brianknows.org',
-        'Referer': `https://enso.brianknows.org/search?userId=${address}`,
-      },
-    };
-    if (proxy) {
-      config.httpAgent = new HttpsProxyAgent(proxy);
-      config.httpsAgent = new HttpsProxyAgent(proxy);
-    }
-    const response = await axios.post('https://enso.brianknows.org/api/search', payload, config);
-    spinner.succeed(chalk.green(' ┊ ✓ Chat dikirim'));
-    await sleep(100);
-    return response.data.answer;
-  } catch (err) {
-    const errorMsg = err.response ? `HTTP ${err.response.status}` : err.message;
-    if (retryCount < maxRetries - 1) {
-      spinner.stop();
-      console.log(chalk.cyan(` ┊ → Mengirim chat (Retry ke-${retryCount + 1}/${maxRetries})...`));
-      await sleep(500);
-      return performChat(token, query, address, messages, proxy, retryCount + 1);
-    }
-    spinner.stop();
-    if (err.response && err.response.data) {
-      console.log(chalk.gray(` ┊ ℹ️ Detail error server: ${JSON.stringify(err.response.data)}`));
-    }
-    const newQuery = messages[Math.floor(Math.random() * messages.length)];
-    console.log(chalk.yellow(` ┊ ⚠️ Semua retry gagal Mencoba query baru: ${newQuery}`));
-    await sleep(5000);
-    return performChat(token, newQuery, address, messages, proxy, 0);
   }
 }
 
@@ -643,12 +448,10 @@ function calculateNextRun() {
   return nextRun;
 }
 
-async function processAccounts(accounts, messages, accountProxies, noType) {
-  const INTERACTIONS = 5;
+async function processAccounts(accounts, accountProxies, noType) {
   const DEFIDEX_LIMIT = 5;
   let successCount = 0;
   let failCount = 0;
-  let failedChats = 0;
   let successfulDexes = 0;
   let failedDexes = 0;
   let successfulCampaigns = 0;
@@ -664,33 +467,11 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
     displayHeader(`═════[ Akun ${i + 1}/${accounts.length} @ ${getTimestamp()} ]═════`, chalk.blue);
 
     const ip = await getPublicIP(proxy);
+    const userInfo = await getUserInfo(account.zealyUserId, proxy); 
 
     let accountSuccess = true;
-    let partialFailure = false;
 
     try {
-      const nonce = await getNonce(proxy);
-      const { message, signature } = await signMessage(account.privateKey, nonce, account.address);
-      const { token } = await verify(message, signature, account.address, proxy);
-      const accountInfo = await getAccountInfo(token, account.address, proxy);
-
-      console.log(chalk.magentaBright(' ┊ ┌── Proses Chat ──'));
-      for (let j = 0; j < INTERACTIONS; j++) {
-        console.log(chalk.yellow(` ┊ ├─ Chat ${createProgressBar(j + 1, INTERACTIONS)} ──`));
-        const query = messages[Math.floor(Math.random() * messages.length)];
-        console.log(chalk.white(` ┊ │ Pesan: ${query}`));
-        const response = await performChat(token, query, account.address, messages, proxy);
-        if (response.startsWith('Gagal')) {
-          failedChats++;
-          partialFailure = true;
-        }
-        await typeText(response, response.startsWith('Gagal') ? chalk.red : chalk.green, noType);
-        await sleep(1000);
-        console.log(chalk.yellow(' ┊ └──'));
-        await sleep(3000);
-      }
-      console.log(chalk.yellow(' ┊ └──'));
-
       console.log(chalk.magentaBright(' ┊ ┌── Proses DeFiDex ──'));
       for (let j = 0; j < DEFIDEX_LIMIT; j++) {
         console.log(chalk.yellow(` ┊ ├─ DeFiDex ${createProgressBar(j + 1, DEFIDEX_LIMIT)} ──`));
@@ -701,7 +482,6 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
           successfulDexes++;
         } else {
           failedDexes++;
-          partialFailure = true;
           if (!success && j === 0) break;
         }
         await sleep(1000);
@@ -728,7 +508,6 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
               successfulCampaigns++;
             } else {
               failedCampaigns++;
-              partialFailure = true;
             }
             spinner.text = chalk.cyan(` ┊ │ Memproses campaign: ${j + 1}/${pendingCampaigns.length}...`);
             await sleep(1000);
@@ -758,7 +537,6 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
               successfulProtocols++;
             } else {
               failedProtocols++;
-              partialFailure = true;
             }
             spinner.text = chalk.cyan(` ┊ │ Memproses protocols: ${j + 1}/${pendingProtocols.length}...`);
             await sleep(1000);
@@ -788,9 +566,6 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
 
   displayHeader(`═════[ Selesai @ ${getTimestamp()} ]═════`, chalk.blue);
   console.log(chalk.gray(` ┊ ✅ ${successCount} akun sukses, ❌ ${failCount} akun gagal`));
-  if (failedChats > 0) {
-    console.log(chalk.yellow(` ┊ ⚠️ ${failedChats} chat gagal`));
-  }
   if (failedCampaigns > 0) {
     console.log(chalk.yellow(` ┊ ⚠️ ${failedCampaigns} campaign gagal`));
   }
@@ -843,16 +618,6 @@ async function main() {
     return;
   }
 
-  let messages = [];
-  try {
-    const msgData = await fs.readFile('pesan.txt', 'utf8');
-    messages = msgData.split('\n').filter(line => line.trim() !== '');
-  } catch (err) {
-    console.log(chalk.red('✗ File pesan.txt tidak ditemukan atau kosong!'));
-    rl.close();
-    return;
-  }
-
   let useProxy;
   while (true) {
     const input = await promptUser('Gunakan proxy? (y/n) ');
@@ -883,7 +648,7 @@ async function main() {
   });
 
   console.log(chalk.cyan(` ┊ ⏰ Memulai proses akun pertama...`));
-  await processAccounts(accounts, messages, accountProxies, noType);
+  await processAccounts(accounts, accountProxies, noType);
 
   const scheduleNextRun = async () => {
     const nextRun = calculateNextRun();
@@ -891,7 +656,7 @@ async function main() {
     schedule.scheduleJob(nextRun.toDate(), async () => {
       const currentTimeWIB = moment().tz('Asia/Jakarta').format('DD/MM/YYYY, HH:mm:ss');
       console.log(chalk.cyan(` ┊ ⏰ Proses dimulai pada ${currentTimeWIB}`));
-      await processAccounts(accounts, messages, accountProxies, noType);
+      await processAccounts(accounts, accountProxies, noType);
       scheduleNextRun();
     });
   };
